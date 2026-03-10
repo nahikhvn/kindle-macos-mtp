@@ -1,0 +1,11 @@
+# Compiled binary
+mtp-batch
+
+# macOS
+.DS_Store
+
+# Kindle local data
+.kindle/
+
+# Local plans/notes
+docs/
