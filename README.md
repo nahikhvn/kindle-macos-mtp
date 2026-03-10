@@ -88,7 +88,7 @@ Default locations per page by screen size (at default font):
 Tune for your setup with environment variables:
 
 ```bash
-KINDLE_SCREEN=7 kindle progress book        # 7" Oasis
+KINDLE_SCREEN=7 kindle progress book        # 7" ereader
 LOCS_PER_PAGE=7 kindle progress book        # large font on any screen
 LOCS_PER_PAGE=15 kindle progress book       # small font
 ```
