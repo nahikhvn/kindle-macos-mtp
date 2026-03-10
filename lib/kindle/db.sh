@@ -43,6 +43,19 @@ db_init() {
             device_id   INTEGER NOT NULL DEFAULT 0,
             pulled_at   TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS book_mappings (
+            file_id            INTEGER NOT NULL,
+            platform           TEXT NOT NULL,
+            external_id        TEXT NOT NULL,
+            external_title     TEXT,
+            edition_id         TEXT,
+            edition_pages      INTEGER,
+            user_book_id       TEXT,
+            user_book_read_id  TEXT,
+            mapped_at          TEXT NOT NULL,
+            last_synced_at     TEXT,
+            PRIMARY KEY (file_id, platform)
+        );
     "
     # Migrate: add percentage and total_positions columns to reading_positions if missing
     local has_percentage
