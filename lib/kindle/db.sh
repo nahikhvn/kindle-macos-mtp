@@ -56,6 +56,21 @@ db_init() {
         sqlite3 "$KINDLE_DB" "ALTER TABLE reading_positions ADD COLUMN total_positions INTEGER DEFAULT 0;" 2>/dev/null || true
     fi
 
+    # Migrate: add metadata columns to books (parsed from filename)
+    local has_title
+    has_title=$(sqlite3 "$KINDLE_DB" "SELECT COUNT(*) FROM pragma_table_info('books') WHERE name='title';" 2>/dev/null || echo 0)
+    if [ "$has_title" -eq 0 ]; then
+        sqlite3 "$KINDLE_DB" "
+            ALTER TABLE books ADD COLUMN title TEXT DEFAULT '';
+            ALTER TABLE books ADD COLUMN author TEXT DEFAULT '';
+            ALTER TABLE books ADD COLUMN series TEXT DEFAULT '';
+            ALTER TABLE books ADD COLUMN publisher TEXT DEFAULT '';
+            ALTER TABLE books ADD COLUMN isbn TEXT DEFAULT '';
+        " 2>/dev/null || true
+        # Backfill from existing filenames
+        _db_backfill_metadata
+    fi
+
     # Migrate: drop legacy scans table that had file_count column
     local has_file_count
     has_file_count=$(sqlite3 "$KINDLE_DB" "SELECT COUNT(*) FROM pragma_table_info('scans') WHERE name='file_count';" 2>/dev/null || echo 0)
@@ -75,7 +90,28 @@ db_query() {
     sqlite3 -separator '|' "$KINDLE_DB" "$@"
 }
 
+_db_backfill_metadata() {
+    local rows
+    rows=$(db_query "SELECT file_id, filename FROM books WHERE title = '' OR title IS NULL;" 2>/dev/null || true)
+    [ -z "$rows" ] && return
+    echo "$rows" | while IFS='|' read -r fid fname; do
+        local meta
+        meta=$(parse_book_metadata "$fname")
+        local title author series publisher isbn
+        IFS='|' read -r title author series publisher isbn <<< "$meta"
+        local st sa ss sp si
+        st=$(echo "$title" | sed "s/'/''/g")
+        sa=$(echo "$author" | sed "s/'/''/g")
+        ss=$(echo "$series" | sed "s/'/''/g")
+        sp=$(echo "$publisher" | sed "s/'/''/g")
+        si=$(echo "$isbn" | sed "s/'/''/g")
+        db_query "UPDATE books SET title='$st', author='$sa', series='$ss', publisher='$sp', isbn='$si' WHERE file_id=$fid;"
+    done
+}
+
 db_require() {
+    # Run migrations if DB exists
+    [ -f "$KINDLE_DB" ] && db_init
     if [ ! -f "$KINDLE_DB" ] || [ "$(db_query "SELECT COUNT(*) FROM books;")" = "0" ]; then
         echo -e "${RED}No scan data.${NC} Run ${BOLD}kindle scan${NC} first (with device plugged in)."
         return 1

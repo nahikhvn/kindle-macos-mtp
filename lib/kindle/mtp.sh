@@ -32,8 +32,18 @@ cmd_scan() {
             .kfx|.mobi|.pdf|.epub)
                 local safe_name
                 safe_name=$(echo "$name" | sed "s/'/''/g")
-                db_query "INSERT OR REPLACE INTO books(file_id, filename, size, extension, scanned_at)
-                          VALUES($id, '$safe_name', $size, '$ext', '$now');"
+                local meta
+                meta=$(parse_book_metadata "$name")
+                local b_title b_author b_series b_publisher b_isbn
+                IFS='|' read -r b_title b_author b_series b_publisher b_isbn <<< "$meta"
+                local st sa ss sp si
+                st=$(echo "$b_title" | sed "s/'/''/g")
+                sa=$(echo "$b_author" | sed "s/'/''/g")
+                ss=$(echo "$b_series" | sed "s/'/''/g")
+                sp=$(echo "$b_publisher" | sed "s/'/''/g")
+                si=$(echo "$b_isbn" | sed "s/'/''/g")
+                db_query "INSERT OR REPLACE INTO books(file_id, filename, size, extension, scanned_at, title, author, series, publisher, isbn)
+                          VALUES($id, '$safe_name', $size, '$ext', '$now', '$st', '$sa', '$ss', '$sp', '$si');"
                 ;;
         esac
     done < "$tmpfile"
