@@ -1,3 +1,61 @@
+# Parse book filename to extract metadata (Anna's Archive format)
+# Input: filename
+# Output: pipe-separated "title|author|series|publisher|isbn"
+parse_book_metadata() {
+    local filename="$1"
+
+    # Strip _UUID.extension suffix (Kindle appends _<32 hex>.ext)
+    local base
+    base=$(echo "$filename" | sed 's/_[A-F0-9]\{32\}\.[a-zA-Z]*$//')
+
+    # Non-Anna's format: no " -- " separator, just a title
+    if [[ "$base" != *" -- "* ]]; then
+        echo "$base||||"
+        return
+    fi
+
+    # Split by " -- " into array
+    local -a segments=()
+    local remaining="$base"
+    while [[ "$remaining" == *" -- "* ]]; do
+        segments+=("${remaining%% -- *}")
+        remaining="${remaining#* -- }"
+    done
+    segments+=("$remaining")
+
+    local title="${segments[0]}"
+    local author="${segments[1]:-}"
+    local series="" publisher="" isbn=""
+
+    # Classify remaining segments by pattern
+    local -a middle=()
+    local i seg
+    for ((i=2; i<${#segments[@]}; i++)); do
+        seg="${segments[$i]}"
+        # Anna's Archive source tag (often truncated)
+        [[ "$seg" =~ ^Anna ]] && continue
+        # MD5 hash (20-32 lowercase hex chars, may be truncated by UUID)
+        [[ "$seg" =~ ^[0-9a-f]{20,32}$ ]] && continue
+        # ISBN-13 or ISBN-10
+        if [[ "$seg" =~ ^97[89][0-9]{10}$ ]] || [[ "$seg" =~ ^[0-9]{9}[0-9Xx]$ ]]; then
+            isbn="$seg"
+            continue
+        fi
+        middle+=("$seg")
+    done
+
+    # First unclassified = series, second = publisher
+    if [ ${#middle[@]} -ge 2 ]; then
+        series="${middle[0]}"
+        publisher="${middle[1]}"
+    elif [ ${#middle[@]} -eq 1 ]; then
+        # Single remaining segment: publisher (no series info)
+        publisher="${middle[0]}"
+    fi
+
+    echo "${title}|${author}|${series}|${publisher}|${isbn}"
+}
+
 # Parse mtp-files multi-line output into: id|filename|size
 parse_mtp_files() {
     awk '
