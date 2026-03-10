@@ -32,9 +32,9 @@ usage() {
     echo ""
     echo -e "${BOLD}Export commands:${NC}"
     echo "  kindle export <fmt> <type> [filter]"
-    echo "                           Export data (fmt: csv/json/tsv)"
-    echo "                           (type: books/progress/highlights/"
-    echo "                            notes/clippings/vocabulary/all)"
+    echo "                           Export to ~/Downloads/ (csv/json/tsv)"
+    echo "    -o DIR                 Save to DIR instead"
+    echo "    -o -                   Write to stdout for piping"
     echo "  kindle db [sql]          Open SQLite shell or run a query"
     echo ""
     echo -e "${BOLD}Live commands${NC} (require device):"
@@ -72,7 +72,7 @@ case "${1:-}" in
     clippings) cmd_clippings "${2:-}" ;;
     books)     cmd_books "${2:-}" ;;
     rm)        cmd_rm "${2:-}" ;;
-    export)    cmd_export "${2:-}" "${3:-}" "${4:-}" ;;
+    export)    shift; cmd_export "$@" ;;
     db)        cmd_db "${2:-}" ;;
     -h|--help|help|"") usage ;;
     *)

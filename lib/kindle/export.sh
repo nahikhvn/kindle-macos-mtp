@@ -1,21 +1,44 @@
 # --- export ---
 cmd_export() {
-    local format="${1:-}"
-    local type="${2:-}"
-    local filter="${3:-}"
+    local outdir="$HOME/Downloads"
+    local format="" type="" filter=""
+
+    # Parse flags
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -o|--output)
+                outdir="${2:-}"
+                if [ -z "$outdir" ]; then
+                    echo -e "${RED}-o requires a directory (or - for stdout)${NC}" >&2
+                    return 1
+                fi
+                shift 2
+                ;;
+            *)
+                if [ -z "$format" ]; then format="$1"
+                elif [ -z "$type" ]; then type="$1"
+                else filter="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
 
     if [ -z "$format" ] || [ -z "$type" ]; then
-        echo -e "${RED}Usage:${NC} kindle export <format> <type> [filter]" >&2
+        echo -e "${RED}Usage:${NC} kindle export [-o dir] <format> <type> [filter]" >&2
         echo "" >&2
         echo "Formats: csv, json, tsv" >&2
         echo "Types:   books, progress, highlights, notes, clippings, vocabulary, all" >&2
         echo "" >&2
+        echo "Options:" >&2
+        echo "  -o, --output DIR   Output directory (default: ~/Downloads)" >&2
+        echo "  -o -               Write to stdout instead of file" >&2
+        echo "" >&2
         echo "Examples:" >&2
-        echo "  kindle export csv books" >&2
-        echo "  kindle export json progress" >&2
-        echo "  kindle export json highlights hp" >&2
-        echo "  kindle export tsv vocabulary" >&2
-        echo "  kindle export json all" >&2
+        echo "  kindle export csv books              # → ~/Downloads/kindle-books.csv" >&2
+        echo "  kindle export json progress           # → ~/Downloads/kindle-progress.json" >&2
+        echo "  kindle export -o /tmp json all        # → /tmp/kindle-all.json" >&2
+        echo "  kindle export -o - csv books | wc -l  # pipe to stdout" >&2
         return 1
     fi
 
@@ -38,6 +61,19 @@ cmd_export() {
 
     # Send db_require output to stderr so it doesn't pollute export data
     db_require >&2 || return 1
+
+    if [ "$outdir" = "-" ]; then
+        _export_to_stdout "$format" "$type" "$filter"
+    else
+        local outfile="${outdir}/kindle-${type}.${format}"
+        mkdir -p "$outdir"
+        _export_to_stdout "$format" "$type" "$filter" > "$outfile"
+        echo -e "${GREEN}Saved${NC} $outfile" >&2
+    fi
+}
+
+_export_to_stdout() {
+    local format="$1" type="$2" filter="$3"
 
     if [ "$type" = "all" ]; then
         _export_all "$format" "$filter"
