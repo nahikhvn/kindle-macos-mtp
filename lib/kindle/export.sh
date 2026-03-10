@@ -94,7 +94,7 @@ _export_query() {
 
     case "$type" in
         books)
-            local q="SELECT file_id, filename, extension, size, scanned_at FROM books"
+            local q="SELECT file_id, title, author, series, publisher, isbn, extension, size, filename, scanned_at FROM books"
             [ -n "$safe" ] && q="$q WHERE filename LIKE '%${safe}%' COLLATE NOCASE"
             echo "$q ORDER BY filename;"
             ;;
@@ -172,6 +172,7 @@ cmd_db() {
         echo -e "${RED}No database.${NC} Run ${BOLD}kindle scan${NC} first." >&2
         return 1
     fi
+    db_init
 
     if [ -n "$query" ]; then
         sqlite3 -header -column "$KINDLE_DB" "$query"
