@@ -2,7 +2,7 @@
 
 > **Tested with Kindle firmware 5.19.2 on macOS (March 2026). No jailbreak required.** Works with stock Kindle Paperwhite, Basic, and Oasis devices over standard USB. Reads sideloaded books (including from Anna's Archive), clippings, reading progress, and vocabulary lookups via MTP.
 
-A bash CLI for managing Amazon Kindle devices over USB on macOS. Scans the device once, pulls internal databases, then provides offline reading stats, progress tracking, and structured data export (CSV/JSON/TSV).
+A bash CLI for managing Amazon Kindle devices over USB on macOS. Scans the device once, pulls internal databases, then provides offline reading stats, progress tracking, structured data export (CSV/JSON/TSV), and sync to book tracking platforms like [Hardcover](https://hardcover.app).
 
 ## Install
 
@@ -22,6 +22,7 @@ git clone <repo> && ln -s "$(pwd)/bin/kindle" /usr/local/bin/kindle
 4. kindle stats         # reading dashboard
 5. kindle progress hp   # progress for books matching "hp"
 6. kindle ls mobi       # list books matching "mobi"
+7. kindle sync hardcover  # sync reading data to Hardcover
 ```
 
 ## Commands
@@ -41,6 +42,11 @@ git clone <repo> && ln -s "$(pwd)/bin/kindle" /usr/local/bin/kindle
 | `kindle clippings [dest]` | yes | Pull `My Clippings.txt` |
 | `kindle books [dest]` | yes | Pull all book files (.kfx, .mobi, .pdf, .epub) |
 | `kindle rm <id>` | yes | Delete a file by MTP file ID |
+| `kindle sync hardcover [filter]` | no | Sync books to Hardcover (progress, status, rating) |
+| `kindle sync hardcover -n` | no | Dry run — preview what would sync |
+| `kindle sync status` | no | Show book mappings and last sync times |
+| `kindle sync map <file_id> hardcover <id>` | no | Manually map a book to a Hardcover book ID |
+| `kindle sync unmap <file_id> hardcover` | no | Remove a book mapping |
 
 ## How it works
 
@@ -135,6 +141,35 @@ kindle db                                  # interactive sqlite3 shell
 kindle db "SELECT * FROM vocabulary LIMIT 5"
 ```
 
+## Syncing to Hardcover
+
+`kindle sync` pushes your Kindle reading data to [Hardcover](https://hardcover.app), a book tracking platform.
+
+### Setup
+
+1. Get your API token from https://hardcover.app/account/api
+2. Add it to `.env.local`:
+   ```bash
+   HARDCOVER_TOKEN="your_token_here"
+   ```
+
+### What gets synced
+
+- **Book matching** — matches books by ISBN13 first, then falls back to title+author search. Interactive selection when multiple results are found.
+- **Reading progress** — Kindle location percentage converted to page numbers using the edition's page count from Hardcover.
+- **Status** — inferred from the `Bookshelves` column in the books table (`to-read`, `currently-reading`, `read`, `did-not-finish`) or auto-detected from reading progress.
+- **Rating** — star rating from the `Rating` column in the books table.
+
+Book-to-Hardcover mappings are cached in the `book_mappings` table, so subsequent syncs skip the search step.
+
+```bash
+kindle sync hardcover                # sync all books
+kindle sync hardcover hp             # sync books matching "hp"
+kindle sync hardcover --dry-run      # preview without making API calls
+kindle sync status                   # check mapping and sync status
+kindle sync map 42 hardcover 12345   # manually map file_id 42
+```
+
 ## Architecture
 
 ```
@@ -148,6 +183,7 @@ lib/kindle/
   mtp.sh                    # all device and offline command implementations
   stats.sh                  # stats dashboard, progress, ls
   export.sh                 # export (csv/json/tsv) and db (raw sqlite3 access)
+  sync.sh                   # sync to external platforms (Hardcover)
   mtp_batch.c               # single-session MTP helper (C, links against libmtp)
 ```
 
@@ -162,4 +198,5 @@ Source order matters — later files depend on functions from earlier ones.
 | `reading_positions` | book_id, position, total_positions, percentage | ksdk_annotation_v1.db |
 | `vocabulary` | word, stem, usage, book, timestamp | vocab.db |
 | `scans` | scanned_at, book_count | scan metadata |
+| `book_mappings` | file_id, platform, external_id, edition_id, edition_pages, user_book_id | sync mapping cache |
 | `cached_files` | filename, device_size, device_id | tracks pulled files |
