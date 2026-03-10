@@ -7,5 +7,8 @@ mtp-batch
 # Kindle local data
 .kindle/
 
+# Local env overrides
+.env.local
+
 # Local plans/notes
 docs/
