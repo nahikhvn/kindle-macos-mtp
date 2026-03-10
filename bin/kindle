@@ -9,9 +9,13 @@ while [ -L "$SOURCE" ]; do
     [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 KINDLE_LIB="$(cd "$(dirname "$SOURCE")/../lib/kindle" && pwd)"
+KINDLE_ROOT="$(cd "$(dirname "$SOURCE")/.." && pwd)"
+
+# Load local overrides (.env.local is gitignored)
+[[ -f "${KINDLE_ROOT}/.env.local" ]] && set -a && source "${KINDLE_ROOT}/.env.local" && set +a
 
 # Source libraries (order matters)
-for f in config deps db ui parse mtp stats export; do
+for f in config deps db ui parse mtp stats export sync; do
     source "${KINDLE_LIB}/${f}.sh"
 done
 
@@ -29,6 +33,10 @@ usage() {
     echo "  kindle stats             Reading & book stats dashboard"
     echo "  kindle progress <book>   Show reading progress for a book"
     echo "  kindle ls [filter]       List books"
+    echo ""
+    echo -e "${BOLD}Sync commands:${NC}"
+    echo "  kindle sync <platform> [filter]  Sync reading data externally"
+    echo "  kindle sync status               Show sync mappings"
     echo ""
     echo -e "${BOLD}Export commands:${NC}"
     echo "  kindle export <fmt> <type> [filter]"
@@ -73,6 +81,7 @@ case "${1:-}" in
     books)     cmd_books "${2:-}" ;;
     rm)        cmd_rm "${2:-}" ;;
     export)    shift; cmd_export "$@" ;;
+    sync)      shift; cmd_sync "$@" ;;
     db)        cmd_db "${2:-}" ;;
     -h|--help|help|"") usage ;;
     *)

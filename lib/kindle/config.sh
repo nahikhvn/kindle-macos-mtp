@@ -38,3 +38,7 @@ case "$KINDLE_SCREEN" in
     7)  LOCS_PER_PAGE=${LOCS_PER_PAGE:-13} ;;
     *)  LOCS_PER_PAGE=${LOCS_PER_PAGE:-10} ;;
 esac
+
+# Sync: Hardcover (https://hardcover.app/account/api)
+HARDCOVER_TOKEN="${HARDCOVER_TOKEN:-}"
+HARDCOVER_API="https://api.hardcover.app/v1/graphql"
