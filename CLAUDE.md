@@ -12,6 +12,8 @@ bin/kindle scan         # scan device (requires Kindle connected via USB)
 bin/kindle stats        # reading dashboard (offline)
 bin/kindle progress hp  # progress for books matching "hp" (offline)
 bin/kindle ls [filter]  # list books (offline)
+bin/kindle export json books  # export data as csv/json/tsv (offline)
+bin/kindle db "SELECT ..."    # raw SQLite access (offline)
 ```
 
 No build step. No tests. No linting. Pure bash.
@@ -39,7 +41,8 @@ Single entry point `bin/kindle` sources `lib/kindle/` in strict order:
 5. **parse.sh** — parsers: mtp-files output (awk), clippings, Kindle databases
 6. **mtp.sh** — device commands: `cmd_scan`, `cmd_detect`, `cmd_pull`, `cmd_push`, `cmd_clippings`, `cmd_books`, `cmd_tree`, `cmd_rm`
 7. **stats.sh** — offline commands: `cmd_ls`, `cmd_progress`, `cmd_stats`
-8. **mtp_batch.c** — single-session MTP helper (C, links against libmtp)
+8. **export.sh** — data export (`cmd_export`: csv/json/tsv) and raw db access (`cmd_db`)
+9. **mtp_batch.c** — single-session MTP helper (C, links against libmtp)
 
 Source order matters — later files depend on earlier ones.
 

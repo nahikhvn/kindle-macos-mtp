@@ -11,7 +11,7 @@ done
 KINDLE_LIB="$(cd "$(dirname "$SOURCE")/../lib/kindle" && pwd)"
 
 # Source libraries (order matters)
-for f in config deps db ui parse mtp stats; do
+for f in config deps db ui parse mtp stats export; do
     source "${KINDLE_LIB}/${f}.sh"
 done
 
@@ -29,6 +29,13 @@ usage() {
     echo "  kindle stats             Reading & book stats dashboard"
     echo "  kindle progress <book>   Show reading progress for a book"
     echo "  kindle ls [filter]       List books"
+    echo ""
+    echo -e "${BOLD}Export commands:${NC}"
+    echo "  kindle export <fmt> <type> [filter]"
+    echo "                           Export data (fmt: csv/json/tsv)"
+    echo "                           (type: books/progress/highlights/"
+    echo "                            notes/clippings/vocabulary/all)"
+    echo "  kindle db [sql]          Open SQLite shell or run a query"
     echo ""
     echo -e "${BOLD}Live commands${NC} (require device):"
     echo "  kindle scan              Scan device, pull data to ~/.kindle/"
@@ -65,6 +72,8 @@ case "${1:-}" in
     clippings) cmd_clippings "${2:-}" ;;
     books)     cmd_books "${2:-}" ;;
     rm)        cmd_rm "${2:-}" ;;
+    export)    cmd_export "${2:-}" "${3:-}" "${4:-}" ;;
+    db)        cmd_db "${2:-}" ;;
     -h|--help|help|"") usage ;;
     *)
         echo -e "${RED}Unknown command:${NC} $1"

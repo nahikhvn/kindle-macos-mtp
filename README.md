@@ -30,6 +30,8 @@ git clone <repo> && ln -s "$(pwd)/bin/kindle" /usr/local/bin/kindle
 | `kindle stats` | no | Reading stats dashboard (books, formats, clippings, vocab) |
 | `kindle progress <book>` | no | Reading progress for a book (bookmark, highlights, est. pages) |
 | `kindle ls [filter]` | no | List all books, optionally filtered |
+| `kindle export <fmt> <type> [filter]` | no | Export data as csv, json, or tsv |
+| `kindle db [sql]` | no | Open SQLite shell or run a one-off query |
 | `kindle detect` | yes | Check if a Kindle is connected |
 | `kindle tree` | yes | Full file/folder tree on device |
 | `kindle pull <id> [dest]` | yes | Download a file by MTP file ID |
@@ -95,6 +97,32 @@ LOCS_PER_PAGE=15 kindle progress book       # small font
 
 When total locations are available (from `ksdk_annotation_v1.db`), progress shows as "~Page X of ~Y (Z%)".
 
+## Exporting data
+
+`kindle export` dumps data in machine-readable formats for use with external tools and services.
+
+```bash
+kindle export csv books                    # library list
+kindle export json progress                # reading progress as JSON
+kindle export json highlights hp           # highlights for books matching "hp"
+kindle export tsv vocabulary               # vocab lookups (tab-separated)
+kindle export json all                     # everything in one JSON object
+kindle export csv books > library.csv      # pipe to file
+kindle export json progress | jq .         # pipe to jq
+```
+
+**Formats:** `csv`, `json`, `tsv`
+**Types:** `books`, `progress`, `highlights`, `notes`, `clippings`, `vocabulary`, `all`
+
+All informational output goes to stderr, so stdout is clean for piping.
+
+For ad-hoc queries, `kindle db` gives direct SQLite access:
+
+```bash
+kindle db                                  # interactive sqlite3 shell
+kindle db "SELECT * FROM vocabulary LIMIT 5"
+```
+
 ## Architecture
 
 ```
@@ -107,6 +135,7 @@ lib/kindle/
   parse.sh                  # parsers: mtp-files output, clippings, Kindle databases
   mtp.sh                    # all device and offline command implementations
   stats.sh                  # stats dashboard, progress, ls
+  export.sh                 # export (csv/json/tsv) and db (raw sqlite3 access)
   mtp_batch.c               # single-session MTP helper (C, links against libmtp)
 ```
 
