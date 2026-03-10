@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve real path (works through symlinks)
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+KINDLE_LIB="$(cd "$(dirname "$SOURCE")/../lib/kindle" && pwd)"
+
+# Source libraries (order matters)
+for f in config deps db ui parse mtp stats; do
+    source "${KINDLE_LIB}/${f}.sh"
+done
+
+check_deps
+
+usage() {
+    echo -e "${BOLD}kindle${NC} — MTP bridge for Kindle on macOS"
+    echo ""
+    echo -e "${BOLD}Workflow:${NC}"
+    echo "  1. Plug in Kindle"
+    echo "  2. kindle scan     Scans files, pulls databases & clippings"
+    echo "  3. kindle stats    View reading dashboard (offline)"
+    echo ""
+    echo -e "${BOLD}Offline commands:${NC}"
+    echo "  kindle stats             Reading & book stats dashboard"
+    echo "  kindle progress <book>   Show reading progress for a book"
+    echo "  kindle ls [filter]       List books"
+    echo ""
+    echo -e "${BOLD}Live commands${NC} (require device):"
+    echo "  kindle scan              Scan device, pull data to ~/.kindle/"
+    echo "  kindle detect            Check if a Kindle is connected"
+    echo "  kindle tree              Show full file/folder tree"
+    echo "  kindle pull <id> [dest]  Download a file by MTP file ID"
+    echo "  kindle push <file> [id]  Upload a file (parent folder ID, default 0)"
+    echo "  kindle clippings [dest]  Pull My Clippings.txt"
+    echo "  kindle books [dest]      Pull all book files to a directory"
+    echo "  kindle rm <id>           Delete a file by MTP file ID"
+    echo ""
+    echo -e "${BOLD}Settings${NC} (environment variables):"
+    echo "  KINDLE_SCREEN=6|7       Screen size for page estimates (default: 6)"
+    echo "  LOCS_PER_PAGE=N         Locations per page, tune for font size"
+    echo "                          (default: 10 for 6\", 13 for 7\")"
+    echo ""
+    if [ -x "$MTP_BATCH" ]; then
+        echo -e "${BOLD}Note:${NC} Using mtp-batch helper (single-session, no replugging)."
+    else
+        echo -e "${BOLD}Note:${NC} libmtp on macOS locks the device after each command."
+        echo "  kindle scan handles replugging prompts automatically."
+    fi
+}
+
+case "${1:-}" in
+    scan)      cmd_scan ;;
+    stats)     cmd_stats ;;
+    progress)  cmd_progress "${2:-}" ;;
+    ls)        cmd_ls "${2:-}" ;;
+    detect)    cmd_detect ;;
+    tree)      cmd_tree ;;
+    pull)      cmd_pull "${2:-}" "${3:-}" ;;
+    push)      cmd_push "${2:-}" "${3:-}" ;;
+    clippings) cmd_clippings "${2:-}" ;;
+    books)     cmd_books "${2:-}" ;;
+    rm)        cmd_rm "${2:-}" ;;
+    -h|--help|help|"") usage ;;
+    *)
+        echo -e "${RED}Unknown command:${NC} $1"
+        usage
+        exit 1
+        ;;
+esac
