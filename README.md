@@ -70,6 +70,16 @@ Kindle USB ──► kindle scan ──► ~/.kindle/
 
 All other commands read from `~/.kindle/kindle.db` — no device needed.
 
+### Book metadata parsing
+
+Filenames from Anna's Archive follow the format:
+
+```
+Title -- Author -- Series, Year -- Publisher -- ISBN -- md5 -- Anna's Archive.ext
+```
+
+During scan (or on first use after upgrading), these filenames are parsed into structured fields: `title`, `author`, `series`, `publisher`, and `isbn`. Non-Anna's Archive filenames (e.g. `hpmor_UUID.kfx`) get the title extracted by stripping the Kindle UUID suffix.
+
 ### Page estimation
 
 Kindle uses "locations" (~128 bytes of text) as fixed position units instead of pages. Page numbers are only available for Amazon-purchased books with print edition mapping.
@@ -145,7 +155,7 @@ Source order matters — later files depend on functions from earlier ones.
 
 | Table | Key columns | Source |
 |---|---|---|
-| `books` | file_id, filename, size, extension | MTP file listing |
+| `books` | file_id, title, author, series, publisher, isbn, filename, size, extension | MTP file listing + filename parsing |
 | `clippings` | book, type (highlight/note/bookmark), content, location | My Clippings.txt |
 | `reading_positions` | book_id, position, total_positions, percentage | ksdk_annotation_v1.db |
 | `vocabulary` | word, stem, usage, book, timestamp | vocab.db |
