@@ -1,6 +1,8 @@
 # kindle — MTP bridge for Kindle on macOS
 
-A bash CLI for managing Amazon Kindle devices over USB on macOS. Scans the device once, pulls internal databases, then provides offline reading stats and progress tracking.
+> **Tested with Kindle firmware 5.19.2 on macOS (March 2026). No jailbreak required.** Works with stock Kindle Paperwhite, Basic, and Oasis devices over standard USB. Reads sideloaded books (including from Anna's Archive), clippings, reading progress, and vocabulary lookups via MTP.
+
+A bash CLI for managing Amazon Kindle devices over USB on macOS. Scans the device once, pulls internal databases, then provides offline reading stats, progress tracking, and structured data export (CSV/JSON/TSV).
 
 ## Install
 
