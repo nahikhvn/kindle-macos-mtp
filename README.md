@@ -155,7 +155,7 @@ Source order matters — later files depend on functions from earlier ones.
 
 | Table | Key columns | Source |
 |---|---|---|
-| `books` | file_id, title, author, series, publisher, isbn, filename, size, extension | MTP file listing + filename parsing |
+| `books` | file_id, Title, Author, Series, Publisher, ISBN13, Rating, Review, Bookshelves, filename, size, extension | MTP file listing + filename parsing |
 | `clippings` | book, type (highlight/note/bookmark), content, location | My Clippings.txt |
 | `reading_positions` | book_id, position, total_positions, percentage | ksdk_annotation_v1.db |
 | `vocabulary` | word, stem, usage, book, timestamp | vocab.db |

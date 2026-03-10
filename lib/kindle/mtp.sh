@@ -42,7 +42,7 @@ cmd_scan() {
                 ss=$(echo "$b_series" | sed "s/'/''/g")
                 sp=$(echo "$b_publisher" | sed "s/'/''/g")
                 si=$(echo "$b_isbn" | sed "s/'/''/g")
-                db_query "INSERT OR REPLACE INTO books(file_id, filename, size, extension, scanned_at, title, author, series, publisher, isbn)
+                db_query "INSERT OR REPLACE INTO books(file_id, filename, size, extension, scanned_at, Title, Author, Series, Publisher, ISBN13)
                           VALUES($id, '$safe_name', $size, '$ext', '$now', '$st', '$sa', '$ss', '$sp', '$si');"
                 ;;
         esac

@@ -94,7 +94,7 @@ _export_query() {
 
     case "$type" in
         books)
-            local q="SELECT file_id, title, author, series, publisher, isbn, extension, size, filename, scanned_at FROM books"
+            local q="SELECT file_id, Title, Author, Series, Publisher, ISBN13, Rating, Review, Bookshelves, extension, size, filename, scanned_at FROM books"
             [ -n "$safe" ] && q="$q WHERE filename LIKE '%${safe}%' COLLATE NOCASE"
             echo "$q ORDER BY filename;"
             ;;

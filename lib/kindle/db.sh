@@ -57,18 +57,41 @@ db_init() {
     fi
 
     # Migrate: add metadata columns to books (parsed from filename)
-    local has_title
-    has_title=$(sqlite3 "$KINDLE_DB" "SELECT COUNT(*) FROM pragma_table_info('books') WHERE name='title';" 2>/dev/null || echo 0)
-    if [ "$has_title" -eq 0 ]; then
+    local has_Title
+    has_Title=$(sqlite3 "$KINDLE_DB" "SELECT COUNT(*) FROM pragma_table_info('books') WHERE name='Title';" 2>/dev/null || echo 0)
+    if [ "$has_Title" -eq 0 ]; then
+        # Rename old lowercase columns if they exist, otherwise add new ones
+        local has_title_lower
+        has_title_lower=$(sqlite3 "$KINDLE_DB" "SELECT COUNT(*) FROM pragma_table_info('books') WHERE name='title';" 2>/dev/null || echo 0)
+        if [ "$has_title_lower" -gt 0 ]; then
+            sqlite3 "$KINDLE_DB" "
+                ALTER TABLE books RENAME COLUMN title TO Title;
+                ALTER TABLE books RENAME COLUMN author TO Author;
+                ALTER TABLE books RENAME COLUMN series TO Series;
+                ALTER TABLE books RENAME COLUMN publisher TO Publisher;
+                ALTER TABLE books RENAME COLUMN isbn TO ISBN13;
+            " 2>/dev/null || true
+        else
+            sqlite3 "$KINDLE_DB" "
+                ALTER TABLE books ADD COLUMN Title TEXT DEFAULT '';
+                ALTER TABLE books ADD COLUMN Author TEXT DEFAULT '';
+                ALTER TABLE books ADD COLUMN Series TEXT DEFAULT '';
+                ALTER TABLE books ADD COLUMN Publisher TEXT DEFAULT '';
+                ALTER TABLE books ADD COLUMN ISBN13 TEXT DEFAULT '';
+            " 2>/dev/null || true
+            _db_backfill_metadata
+        fi
+    fi
+
+    # Migrate: add user-editable columns (Rating, Review, Bookshelves)
+    local has_Rating
+    has_Rating=$(sqlite3 "$KINDLE_DB" "SELECT COUNT(*) FROM pragma_table_info('books') WHERE name='Rating';" 2>/dev/null || echo 0)
+    if [ "$has_Rating" -eq 0 ]; then
         sqlite3 "$KINDLE_DB" "
-            ALTER TABLE books ADD COLUMN title TEXT DEFAULT '';
-            ALTER TABLE books ADD COLUMN author TEXT DEFAULT '';
-            ALTER TABLE books ADD COLUMN series TEXT DEFAULT '';
-            ALTER TABLE books ADD COLUMN publisher TEXT DEFAULT '';
-            ALTER TABLE books ADD COLUMN isbn TEXT DEFAULT '';
+            ALTER TABLE books ADD COLUMN Rating INTEGER DEFAULT 0;
+            ALTER TABLE books ADD COLUMN Review TEXT DEFAULT '';
+            ALTER TABLE books ADD COLUMN Bookshelves TEXT DEFAULT '';
         " 2>/dev/null || true
-        # Backfill from existing filenames
-        _db_backfill_metadata
     fi
 
     # Migrate: drop legacy scans table that had file_count column
@@ -92,7 +115,7 @@ db_query() {
 
 _db_backfill_metadata() {
     local rows
-    rows=$(db_query "SELECT file_id, filename FROM books WHERE title = '' OR title IS NULL;" 2>/dev/null || true)
+    rows=$(db_query "SELECT file_id, filename FROM books WHERE Title = '' OR Title IS NULL;" 2>/dev/null || true)
     [ -z "$rows" ] && return
     echo "$rows" | while IFS='|' read -r fid fname; do
         local meta
@@ -105,7 +128,7 @@ _db_backfill_metadata() {
         ss=$(echo "$series" | sed "s/'/''/g")
         sp=$(echo "$publisher" | sed "s/'/''/g")
         si=$(echo "$isbn" | sed "s/'/''/g")
-        db_query "UPDATE books SET title='$st', author='$sa', series='$ss', publisher='$sp', isbn='$si' WHERE file_id=$fid;"
+        db_query "UPDATE books SET Title='$st', Author='$sa', Series='$ss', Publisher='$sp', ISBN13='$si' WHERE file_id=$fid;"
     done
 }
 
