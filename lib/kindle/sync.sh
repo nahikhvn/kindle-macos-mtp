@@ -463,10 +463,13 @@ _sync_hardcover_gql() {
     local query="$1"
     local variables="${2:-null}"
     sleep 1  # rate limit: 60 req/min
+    # sed fixes shell/jq escaping '!' to '\!' which breaks GraphQL type syntax (e.g., Int!)
+    local body
+    body=$(jq -n --arg q "$query" --argjson v "$variables" '{query: $q, variables: $v}' | sed 's/\\\\!/!/g')
     curl -s --max-time 30 \
         -H "Authorization: Bearer $HARDCOVER_TOKEN" \
         -H "Content-Type: application/json" \
-        -d "$(jq -n --arg q "$query" --argjson v "$variables" '{query: $q, variables: $v}')" \
+        -d "$body" \
         "$HARDCOVER_API"
 }
 
@@ -663,7 +666,7 @@ _sync_hardcover_push() {
             }' "$vars")
 
         local err
-        err=$(echo "$response" | jq -r '.data.update_user_book.error // empty')
+        err=$(echo "$response" | jq -r '.errors[0].message // .data.update_user_book.error // empty')
         if [[ -n "$err" ]]; then
             echo -e "  ${RED}Status/rating update failed:${NC} $err" >&2
         fi
@@ -695,16 +698,16 @@ _sync_hardcover_push() {
 
                 local response
                 response=$(_sync_hardcover_gql \
-                    'mutation ($id: Int!, $object: UserBookReadUpdateInput!) {
+                    'mutation ($id: Int!, $object: DatesReadInput!) {
                         update_user_book_read(id: $id, object: $object) {
-                            error
-                            user_book_read { id }
+                            id
+                            user_book_read { id progress_pages }
                         }
                     }' \
                     "$(jq -n --argjson id "$read_id" --argjson obj "$read_obj" '{id: $id, object: $obj}')")
 
                 local err
-                err=$(echo "$response" | jq -r '.data.update_user_book_read.error // empty')
+                err=$(echo "$response" | jq -r '.errors[0].message // empty')
                 if [[ -n "$err" ]]; then
                     echo -e "  ${RED}Progress update failed:${NC} $err" >&2
                 fi
@@ -719,14 +722,14 @@ _sync_hardcover_push() {
                 response=$(_sync_hardcover_gql \
                     'mutation ($ubid: Int!, $read: DatesReadInput!) {
                         insert_user_book_read(user_book_id: $ubid, user_book_read: $read) {
-                            error
-                            user_book_read { id }
+                            id
+                            user_book_read { id progress_pages }
                         }
                     }' \
                     "$(jq -n --argjson ubid "$user_book_id" --argjson obj "$read_obj" '{ubid: $ubid, read: $obj}')")
 
                 local err
-                err=$(echo "$response" | jq -r '.data.insert_user_book_read.error // empty')
+                err=$(echo "$response" | jq -r '.errors[0].message // empty')
                 if [[ -n "$err" ]]; then
                     echo -e "  ${RED}Failed to create read:${NC} $err" >&2
                 fi
