@@ -245,22 +245,42 @@ _sync_match_book() {
             return 1
         fi
 
-        # Display results for user selection
-        local i=0
-        echo "  Results:" >&2
-        while IFS='|' read -r rid rtitle rauthor; do
-            i=$(( i + 1 ))
-            echo -e "    ${BOLD}$i)${NC} $rtitle${rauthor:+ by $rauthor}" >&2
-        done <<< "$results"
-        echo -e "    ${BOLD}0)${NC} Skip this book" >&2
+        # Count results
+        local result_count
+        result_count=$(echo "$results" | wc -l | tr -d ' ')
 
+        # Batch-fetch edition pages for all results (single API call)
+        local book_ids
+        book_ids=$(echo "$results" | cut -d'|' -f1 | paste -sd',' -)
+        local editions_data
+        editions_data=$("_sync_${platform}_get_editions_batch" "$book_ids")
+
+        # Auto-select if only 1 result
         local choice=1
-        if [[ -c /dev/tty ]]; then
-            printf "  Select [1]: " >&2
-            read -r choice </dev/tty || true
-            choice="${choice:-1}"
+        if [[ "$result_count" -eq 1 ]]; then
+            local rtitle rauthor rid rpages
+            IFS='|' read -r rid rtitle rauthor <<< "$results"
+            rpages=$(echo "$editions_data" | grep "^${rid}|" | cut -d'|' -f3)
+            echo -e "  ${GREEN}Auto-matched:${NC} $rtitle${rauthor:+ by $rauthor}${rpages:+ (${rpages} pages)}" >&2
         else
-            echo "  Auto-selecting 1 (no tty)" >&2
+            # Display results for user selection
+            local i=0
+            echo "  Results:" >&2
+            while IFS='|' read -r rid rtitle rauthor; do
+                i=$(( i + 1 ))
+                local rpages
+                rpages=$(echo "$editions_data" | grep "^${rid}|" | cut -d'|' -f3)
+                echo -e "    ${BOLD}$i)${NC} $rtitle${rauthor:+ by $rauthor}${rpages:+ ${CYAN}(${rpages} pages)${NC}}" >&2
+            done <<< "$results"
+            echo -e "    ${BOLD}0)${NC} Skip this book" >&2
+
+            if [[ -c /dev/tty ]]; then
+                printf "  Select [1]: " >&2
+                read -r choice </dev/tty || true
+                choice="${choice:-1}"
+            else
+                echo "  Auto-selecting 1 (no tty)" >&2
+            fi
         fi
 
         if [[ "$choice" == "0" ]]; then
@@ -277,11 +297,12 @@ _sync_match_book() {
         external_id=$(echo "$selected" | cut -d'|' -f1)
         external_title=$(echo "$selected" | cut -d'|' -f2)
 
-        # Get edition details for the selected book
-        local edition_info
-        edition_info=$("_sync_${platform}_get_edition" "$external_id")
-        if [[ -n "$edition_info" ]]; then
-            IFS='|' read -r edition_id edition_pages <<< "$edition_info"
+        # Use pre-fetched edition details
+        local edition_line
+        edition_line=$(echo "$editions_data" | grep "^${external_id}|")
+        if [[ -n "$edition_line" ]]; then
+            edition_id=$(echo "$edition_line" | cut -d'|' -f2)
+            edition_pages=$(echo "$edition_line" | cut -d'|' -f3)
         fi
     fi
 
@@ -385,6 +406,25 @@ _sync_hardcover_get_edition() {
     pages=$(echo "$response" | jq -r '.data.books[0].editions[0].pages // empty')
 
     [[ -n "$eid" ]] && echo "${eid}|${pages}"
+}
+
+# Batch-fetch most popular edition (id + pages) for multiple book IDs.
+# Input: comma-separated book IDs (e.g., "123,456,789")
+# Output: book_id|edition_id|pages (one line per book)
+_sync_hardcover_get_editions_batch() {
+    local ids_csv="$1"
+    local response
+    response=$(_sync_hardcover_gql \
+        "query (\$ids: [Int!]!) { books(where: {id: {_in: \$ids}}) { id editions(limit: 1, order_by: {users_count: desc_nulls_last}) { id pages } } }" \
+        "{\"ids\": [$ids_csv]}")
+
+    echo "$response" | jq -r '
+        .data.books[]? |
+        [
+            (.id // "" | tostring),
+            ((.editions[0].id // "") | tostring),
+            ((.editions[0].pages // "") | tostring)
+        ] | join("|")' 2>/dev/null
 }
 
 _sync_hardcover_ensure_user_book() {
