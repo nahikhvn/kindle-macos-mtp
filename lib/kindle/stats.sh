@@ -72,7 +72,7 @@ cmd_progress() {
 
         # Extract short book name for clippings matching (before first _ or --)
         local short_name
-        short_name=$(echo "$name" | sed 's/\(--\|_[A-F0-9]\{32\}\).*//; s/_/ /g; s/[[:space:]]*$//')
+        short_name=$(echo "$name" | sed -E 's/(--|_[A-F0-9]{32}).*//; s/_/ /g; s/[[:space:]]*$//')
 
         local has_progress=false
 
