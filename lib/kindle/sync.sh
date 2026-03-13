@@ -14,6 +14,7 @@ cmd_sync() {
 
     case "$subcmd" in
         hardcover)  _sync_platform hardcover "$@" ;;
+        update)     _sync_update "${1:-hardcover}" ;;
         status)     _sync_status "$@" ;;
         map)        _sync_map "$@" ;;
         unmap)      _sync_unmap "$@" ;;
@@ -33,6 +34,7 @@ Usage: kindle sync <platform> [options] [filter]
 Platforms:
   hardcover [filter]    Sync to Hardcover (hardcover.app)
     -n, --dry-run       Show what would sync without making API calls
+  update [platform]     Push reading progress for already-mapped books (default: hardcover)
 
 Management:
   status [platform]     Show sync mappings and last sync times
@@ -101,6 +103,124 @@ _sync_unmap() {
     echo -e "${GREEN}Unmapped${NC} file_id=$file_id from $platform"
 }
 
+# Get best available reading progress percentage for a book.
+# Tries: 1) reading_positions table, 2) bookmark location from clippings.
+# Outputs percentage (0-100) or empty string.
+_sync_get_percentage() {
+    local file_id="$1" filename="$2"
+
+    local short_name esc_short
+    short_name=$(echo "$filename" | sed -E 's/(--|_[A-F0-9]{32}).*//; s/_/ /g; s/[[:space:]]*$//')
+    esc_short=$(echo "$short_name" | sed "s/'/''/g")
+
+    # Source 1: reading_positions percentage
+    local pct
+    pct=$(db_query "SELECT percentage FROM reading_positions
+        WHERE percentage > 0
+          AND book_name LIKE '%${esc_short}%' COLLATE NOCASE
+        ORDER BY timestamp DESC LIMIT 1" 2>/dev/null || true)
+
+    if [[ -n "$pct" && "$pct" != "0" && "$pct" != "0.0" ]]; then
+        echo "$pct"
+        return 0
+    fi
+
+    # Source 2: bookmark location from clippings + edition_pages
+    local bm_data
+    bm_data=$(db_query "SELECT location FROM clippings
+        WHERE type='bookmark'
+          AND book LIKE '%${esc_short}%' COLLATE NOCASE
+        ORDER BY id DESC LIMIT 1" 2>/dev/null || true)
+
+    if [[ -n "$bm_data" ]]; then
+        local loc_num
+        loc_num=$(echo "$bm_data" | sed -n 's/.*Location \([0-9]*\).*/\1/p')
+        if [[ -n "$loc_num" && "$loc_num" -gt 0 ]] 2>/dev/null; then
+            local edition_pages
+            edition_pages=$(db_query "SELECT edition_pages FROM book_mappings
+                WHERE file_id = $file_id AND edition_pages > 0" 2>/dev/null || true)
+
+            if [[ -n "$edition_pages" && "$edition_pages" -gt 0 ]] 2>/dev/null; then
+                # Estimate: each screen page ≈ LOCS_PER_PAGE locations
+                # est_page = location / LOCS_PER_PAGE, capped at edition_pages
+                # percentage = est_page / edition_pages * 100
+                awk "BEGIN {
+                    ep = $loc_num / $LOCS_PER_PAGE;
+                    if (ep > $edition_pages) ep = $edition_pages;
+                    printf \"%.1f\", ep * 100.0 / $edition_pages
+                }"
+                return 0
+            fi
+        fi
+    fi
+}
+
+_sync_update() {
+    local platform="$1"
+
+    case "$platform" in
+        hardcover)
+            if [[ -z "$HARDCOVER_TOKEN" ]]; then
+                echo -e "${RED}Error:${NC} HARDCOVER_TOKEN not set."
+                echo "Get your token from https://hardcover.app/account/api"
+                echo "Add to .env.local: HARDCOVER_TOKEN=your_token_here"
+                return 1
+            fi
+            ;;
+    esac
+
+    if ! "_sync_${platform}_init"; then
+        return 1
+    fi
+
+    # Get all mapped books
+    local mapped
+    mapped=$(db_query "SELECT bm.file_id, bm.external_id, bm.external_title,
+            b.filename, b.Title, b.Author, b.Bookshelves, b.Rating
+        FROM book_mappings bm
+        JOIN books b ON b.file_id = bm.file_id
+        WHERE bm.platform = '$platform'
+        ORDER BY b.Title")
+
+    if [[ -z "$mapped" ]]; then
+        echo "No mapped books found. Run ${BOLD}kindle sync $platform${NC} first to match books."
+        return 0
+    fi
+
+    local total=0 updated=0 skipped=0 failed=0
+
+    while IFS='|' read -r file_id external_id ext_title filename title author bookshelves rating; do
+        [[ -z "$file_id" ]] && continue
+        total=$(( total + 1 ))
+
+        local percentage
+        percentage=$(_sync_get_percentage "$file_id" "$filename")
+
+        if [[ -z "$percentage" || "$percentage" == "0" || "$percentage" == "0.0" ]]; then
+            skipped=$(( skipped + 1 ))
+            continue
+        fi
+
+        echo -e "${BOLD}${title}${NC}${author:+ by $author}"
+
+        if "_sync_${platform}_push" "$file_id" "$external_id" \
+                "$percentage" "$bookshelves" "$rating" ""; then
+            local now
+            now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            db_query "UPDATE book_mappings SET last_synced_at = '$now'
+                WHERE file_id = $file_id AND platform = '$platform'"
+            echo -e "  ${GREEN}Updated${NC} (${percentage}%)"
+            updated=$(( updated + 1 ))
+        else
+            echo -e "  ${RED}Failed${NC}"
+            failed=$(( failed + 1 ))
+        fi
+    done <<< "$mapped"
+
+    echo ""
+    echo -e "${BOLD}Update complete:${NC} $updated updated, $skipped skipped (no progress), $failed failed (of $total mapped)"
+}
+
 _sync_platform() {
     local platform="$1"
     shift
@@ -164,14 +284,9 @@ _sync_platform() {
 
         echo -e "${BOLD}${title}${NC}${author:+ by $author}"
 
-        # Look up reading position (same name-matching as cmd_progress in stats.sh:75)
-        local short_name percentage
-        short_name=$(echo "$filename" | sed 's/\(--\|_[A-F0-9]\{32\}\).*//; s/_/ /g; s/[[:space:]]*$//')
-        local esc_short
-        esc_short=$(echo "$short_name" | sed "s/'/''/g")
-        percentage=$(db_query "SELECT percentage FROM reading_positions
-            WHERE book_name LIKE '%${esc_short}%' COLLATE NOCASE
-            ORDER BY timestamp DESC LIMIT 1" 2>/dev/null || true)
+        # Look up reading progress (tries reading_positions, then clippings bookmarks)
+        local percentage
+        percentage=$(_sync_get_percentage "$file_id" "$filename")
 
         # Get or create mapping
         local external_id
