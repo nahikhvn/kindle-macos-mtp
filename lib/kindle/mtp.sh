@@ -24,7 +24,7 @@ cmd_scan() {
     local now
     now=$(date '+%Y-%m-%d %H:%M:%S')
 
-    db_query "DELETE FROM books;"
+    local new_count=0 updated_count=0 unchanged_count=0
     while IFS='|' read -r id name size; do
         local ext
         ext=$(echo "$name" | sed -n 's/.*\(\.[a-zA-Z0-9]*\)$/\1/p' | tr '[:upper:]' '[:lower:]')
@@ -32,27 +32,63 @@ cmd_scan() {
             .kfx|.mobi|.pdf|.epub)
                 local safe_name
                 safe_name=$(echo "$name" | sed "s/'/''/g")
-                local meta
-                meta=$(parse_book_metadata "$name")
-                local b_title b_author b_series b_publisher b_isbn
-                IFS='|' read -r b_title b_author b_series b_publisher b_isbn <<< "$meta"
-                local st sa ss sp si
-                st=$(echo "$b_title" | sed "s/'/''/g")
-                sa=$(echo "$b_author" | sed "s/'/''/g")
-                ss=$(echo "$b_series" | sed "s/'/''/g")
-                sp=$(echo "$b_publisher" | sed "s/'/''/g")
-                si=$(echo "$b_isbn" | sed "s/'/''/g")
-                db_query "INSERT OR REPLACE INTO books(file_id, filename, size, extension, scanned_at, Title, Author, Series, Publisher, ISBN13)
-                          VALUES($id, '$safe_name', $size, '$ext', '$now', '$st', '$sa', '$ss', '$sp', '$si');"
+
+                # Check if book already exists (by filename)
+                local existing
+                existing=$(db_query "SELECT file_id, size FROM books WHERE filename = '$safe_name';")
+
+                if [[ -n "$existing" ]]; then
+                    local old_id old_size
+                    IFS='|' read -r old_id old_size <<< "$existing"
+
+                    if [[ "$old_size" == "$size" && "$old_id" == "$id" ]]; then
+                        # Same file, same size — touch timestamp, skip re-parsing
+                        db_query "UPDATE books SET scanned_at = '$now' WHERE filename = '$safe_name';"
+                        unchanged_count=$(( unchanged_count + 1 ))
+                        continue
+                    fi
+
+                    # File ID or size changed — update, and fix book_mappings reference
+                    db_query "UPDATE books SET file_id = $id, size = $size, scanned_at = '$now'
+                              WHERE filename = '$safe_name';"
+                    if [[ "$old_id" != "$id" ]]; then
+                        db_query "UPDATE book_mappings SET file_id = $id WHERE file_id = $old_id;" 2>/dev/null || true
+                    fi
+                    updated_count=$(( updated_count + 1 ))
+                else
+                    # New book
+                    local meta
+                    meta=$(parse_book_metadata "$name")
+                    local b_title b_author b_series b_publisher b_isbn
+                    IFS='|' read -r b_title b_author b_series b_publisher b_isbn <<< "$meta"
+                    local st sa ss sp si
+                    st=$(echo "$b_title" | sed "s/'/''/g")
+                    sa=$(echo "$b_author" | sed "s/'/''/g")
+                    ss=$(echo "$b_series" | sed "s/'/''/g")
+                    sp=$(echo "$b_publisher" | sed "s/'/''/g")
+                    si=$(echo "$b_isbn" | sed "s/'/''/g")
+                    db_query "INSERT INTO books(file_id, filename, size, extension, scanned_at, Title, Author, Series, Publisher, ISBN13)
+                              VALUES($id, '$safe_name', $size, '$ext', '$now', '$st', '$sa', '$ss', '$sp', '$si');"
+                    new_count=$(( new_count + 1 ))
+                fi
                 ;;
         esac
     done < "$tmpfile"
+
+    # Remove books no longer on device
+    local removed_count=0
+    local stale_ids
+    stale_ids=$(db_query "SELECT file_id FROM books WHERE scanned_at != '$now';")
+    if [[ -n "$stale_ids" ]]; then
+        removed_count=$(echo "$stale_ids" | wc -l | tr -d ' ')
+        db_query "DELETE FROM books WHERE scanned_at != '$now';"
+    fi
 
     local book_count
     book_count=$(db_query "SELECT COUNT(*) FROM books;")
     db_query "INSERT INTO scans(scanned_at, book_count) VALUES('$now', $book_count);"
 
-    echo -e "  ${GREEN}Found ${total_files} files, ${BOLD}${book_count}${NC}${GREEN} books${NC}"
+    echo -e "  ${GREEN}Found ${total_files} files, ${BOLD}${book_count}${NC}${GREEN} books${NC} (${new_count} new, ${updated_count} updated, ${unchanged_count} unchanged${removed_count:+, ${removed_count} removed})"
     echo ""
 
     # --- Import data from pulled files ---
