@@ -17,19 +17,20 @@ git clone <repo> && ln -s "$(pwd)/bin/kindle" /usr/local/bin/kindle
 
 ```
 1. Plug in Kindle via USB
-2. kindle scan          # pulls file list, databases, clippings
+2. kindle scan              # pulls file list, databases, clippings (incremental)
 3. Unplug — everything below works offline
-4. kindle stats         # reading dashboard
-5. kindle progress hp   # progress for books matching "hp"
-6. kindle ls mobi       # list books matching "mobi"
-7. kindle sync hardcover  # sync reading data to Hardcover
+4. kindle stats             # reading dashboard
+5. kindle progress hp       # progress for books matching "hp"
+6. kindle ls mobi           # list books matching "mobi"
+7. kindle sync hardcover    # match new books to Hardcover
+8. kindle sync update       # push reading progress to Hardcover
 ```
 
 ## Commands
 
 | Command | Requires device | Description |
 |---|---|---|
-| `kindle scan` | yes | Scan device, pull databases & clippings to `~/.kindle/` |
+| `kindle scan` | yes | Scan device, pull databases & clippings (incremental — skips unchanged books) |
 | `kindle stats` | no | Reading stats dashboard (books, formats, clippings, vocab) |
 | `kindle progress <book>` | no | Reading progress for a book (bookmark, highlights, est. pages) |
 | `kindle ls [filter]` | no | List all books, optionally filtered |
@@ -42,7 +43,8 @@ git clone <repo> && ln -s "$(pwd)/bin/kindle" /usr/local/bin/kindle
 | `kindle clippings [dest]` | yes | Pull `My Clippings.txt` |
 | `kindle books [dest]` | yes | Pull all book files (.kfx, .mobi, .pdf, .epub) |
 | `kindle rm <id>` | yes | Delete a file by MTP file ID |
-| `kindle sync hardcover [filter]` | no | Sync books to Hardcover (progress, status, rating) |
+| `kindle sync hardcover [filter]` | no | Match and sync new books to Hardcover (skips already-mapped books) |
+| `kindle sync update` | no | Push reading progress for all mapped books to Hardcover |
 | `kindle sync hardcover -n` | no | Dry run — preview what would sync |
 | `kindle sync status` | no | Show book mappings and last sync times |
 | `kindle sync map <file_id> hardcover <id>` | no | Manually map a book to a Hardcover book ID |
@@ -72,7 +74,7 @@ Kindle USB ──► kindle scan ──► ~/.kindle/
 ```
 
 `kindle scan` does:
-1. Lists all files on the device (stored in `books` table)
+1. Lists all files on the device — new books are inserted, unchanged books are skipped, and books removed from the device are cleaned up. Book mappings (for Hardcover sync) are preserved across scans even if MTP file IDs change.
 2. Pulls `My Clippings.txt` → parsed into `clippings` table (highlights, notes, bookmarks)
 3. Pulls Kindle internal databases → imported into `reading_positions` and `vocabulary` tables
 
@@ -155,16 +157,17 @@ kindle db "SELECT * FROM vocabulary LIMIT 5"
 
 ### What gets synced
 
-- **Book matching** — matches books by ISBN13 first, then falls back to title+author search. Interactive selection when multiple results are found.
-- **Reading progress** — Kindle location percentage converted to page numbers using the edition's page count from Hardcover.
+- **Book matching** — matches books by ISBN13 first, then falls back to title+author search. Auto-selects when only one result is found; shows page counts for each edition when choosing between multiple results.
+- **Reading progress** — Kindle location percentage converted to page numbers using the edition's page count from Hardcover. Falls back to bookmark locations from clippings when reading position data is unavailable (common for sideloaded books).
 - **Status** — inferred from the `Bookshelves` column in the books table (`to-read`, `currently-reading`, `read`, `did-not-finish`) or auto-detected from reading progress.
 - **Rating** — star rating from the `Rating` column in the books table.
 
-Book-to-Hardcover mappings are cached in the `book_mappings` table, so subsequent syncs skip the search step.
+Book-to-Hardcover mappings are cached in the `book_mappings` table. `kindle sync hardcover` skips already-mapped books and only prompts for new ones. Use `kindle sync update` to push reading progress for all mapped books.
 
 ```bash
-kindle sync hardcover                # sync all books
+kindle sync hardcover                # match and sync new books
 kindle sync hardcover hp             # sync books matching "hp"
+kindle sync update                   # push reading progress for mapped books
 kindle sync hardcover --dry-run      # preview without making API calls
 kindle sync status                   # check mapping and sync status
 kindle sync map 42 hardcover 12345   # manually map file_id 42
