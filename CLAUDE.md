@@ -22,6 +22,7 @@ No build step. No tests. No linting. Pure bash.
 
 - `libmtp` — `brew install libmtp`
 - `sqlite3` — ships with macOS
+- `node` — `brew install node` (optional, only for Goodreads sync via Playwright)
 
 ## Configuration
 
@@ -42,7 +43,9 @@ Single entry point `bin/kindle` sources `lib/kindle/` in strict order:
 6. **mtp.sh** — device commands: `cmd_scan`, `cmd_detect`, `cmd_pull`, `cmd_push`, `cmd_clippings`, `cmd_books`, `cmd_tree`, `cmd_rm`
 7. **stats.sh** — offline commands: `cmd_ls`, `cmd_progress`, `cmd_stats`
 8. **export.sh** — data export (`cmd_export`: csv/json/tsv) and raw db access (`cmd_db`)
-9. **mtp_batch.c** — single-session MTP helper (C, links against libmtp)
+9. **sync.sh** — sync to external platforms (Hardcover via GraphQL, Goodreads via Playwright)
+10. **goodreads.js** — Playwright automation for Goodreads sync (Node.js): login, push shelf/progress/rating
+11. **mtp_batch.c** — single-session MTP helper (C, links against libmtp)
 
 Source order matters — later files depend on earlier ones.
 

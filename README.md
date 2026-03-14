@@ -2,7 +2,7 @@
 
 > **Tested with Kindle firmware 5.19.2 on macOS (March 2026). No jailbreak required.** Works with stock Kindle Paperwhite, Basic, and Oasis devices over standard USB. Reads sideloaded books (including from Anna's Archive), clippings, reading progress, and vocabulary lookups via MTP.
 
-A bash CLI for managing Amazon Kindle devices over USB on macOS. Scans the device once, pulls internal databases, then provides offline reading stats, progress tracking, structured data export (CSV/JSON/TSV), and sync to book tracking platforms like [Hardcover](https://hardcover.app).
+A bash CLI for managing Amazon Kindle devices over USB on macOS. Scans the device once, pulls internal databases, then provides offline reading stats, progress tracking, structured data export (CSV/JSON/TSV), and sync to book tracking platforms like [Hardcover](https://hardcover.app) and [Goodreads](https://goodreads.com).
 
 ## Install
 
@@ -12,6 +12,11 @@ git clone <repo> && ln -s "$(pwd)/bin/kindle" /usr/local/bin/kindle
 ```
 
 `sqlite3` ships with macOS. On first run, `mtp-batch` (a small C helper) is auto-compiled from `lib/kindle/mtp_batch.c` using your Homebrew libmtp headers — no manual build step needed.
+
+For Goodreads sync (optional):
+```bash
+brew install node   # required only for Goodreads sync
+```
 
 ## Quick start
 
@@ -46,9 +51,13 @@ git clone <repo> && ln -s "$(pwd)/bin/kindle" /usr/local/bin/kindle
 | `kindle sync hardcover [filter]` | no | Match and sync new books to Hardcover (skips already-mapped books) |
 | `kindle sync update` | no | Push reading progress for all mapped books to Hardcover |
 | `kindle sync hardcover -n` | no | Dry run — preview what would sync |
+| `kindle sync goodreads-login` | no | One-time browser login to Goodreads (saves session) |
+| `kindle sync goodreads [filter]` | no | Match and sync new books to Goodreads |
+| `kindle sync update goodreads` | no | Push reading progress for mapped books to Goodreads |
+| `kindle sync goodreads -n` | no | Dry run — preview what would sync to Goodreads |
 | `kindle sync status` | no | Show book mappings and last sync times |
-| `kindle sync map <file_id> hardcover <id>` | no | Manually map a book to a Hardcover book ID |
-| `kindle sync unmap <file_id> hardcover` | no | Remove a book mapping |
+| `kindle sync map <file_id> <platform> <id>` | no | Manually map a book to a platform book ID |
+| `kindle sync unmap <file_id> <platform>` | no | Remove a book mapping |
 
 ## How it works
 
@@ -74,7 +83,7 @@ Kindle USB ──► kindle scan ──► ~/.kindle/
 ```
 
 `kindle scan` does:
-1. Lists all files on the device — new books are inserted, unchanged books are skipped, and books removed from the device are cleaned up. Book mappings (for Hardcover sync) are preserved across scans even if MTP file IDs change.
+1. Lists all files on the device — new books are inserted, unchanged books are skipped, and books removed from the device are cleaned up. Book mappings (for sync) are preserved across scans even if MTP file IDs change.
 2. Pulls `My Clippings.txt` → parsed into `clippings` table (highlights, notes, bookmarks)
 3. Pulls Kindle internal databases → imported into `reading_positions` and `vocabulary` tables
 
@@ -173,6 +182,36 @@ kindle sync status                   # check mapping and sync status
 kindle sync map 42 hardcover 12345   # manually map file_id 42
 ```
 
+## Syncing to Goodreads
+
+`kindle sync` can also push your Kindle reading data to [Goodreads](https://goodreads.com) via browser-based authentication (Playwright).
+
+### Setup
+
+1. Install Node.js: `brew install node`
+2. Run the one-time login:
+   ```bash
+   kindle sync goodreads-login
+   ```
+   This opens a browser window — log in to Goodreads (supports Amazon SSO). The session is saved to `~/.kindle/goodreads-session.json`. If the session expires, re-run this command.
+
+### What gets synced
+
+- **Book matching** — searches Goodreads by title and author. Auto-selects when only one result is found; prompts for selection when multiple results match.
+- **Reading progress** — percentage from Kindle reading positions, or estimated from bookmark locations in clippings.
+- **Status** — shelf assignment (`to-read`, `currently-reading`, `read`) from the `Bookshelves` column or auto-detected from reading progress.
+- **Rating** — star rating (1-5) from the `Rating` column.
+
+```bash
+kindle sync goodreads-login          # one-time browser login
+kindle sync goodreads                # match and sync new books
+kindle sync goodreads hp             # sync books matching "hp"
+kindle sync update goodreads         # push reading progress for mapped books
+kindle sync goodreads --dry-run      # preview without making changes
+kindle sync status goodreads         # check mapping and sync status
+kindle sync map 42 goodreads 12345   # manually map file_id 42
+```
+
 ## Architecture
 
 ```
@@ -186,7 +225,8 @@ lib/kindle/
   mtp.sh                    # all device and offline command implementations
   stats.sh                  # stats dashboard, progress, ls
   export.sh                 # export (csv/json/tsv) and db (raw sqlite3 access)
-  sync.sh                   # sync to external platforms (Hardcover)
+  sync.sh                   # sync to external platforms (Hardcover, Goodreads)
+  goodreads.js              # Playwright automation for Goodreads sync (Node.js)
   mtp_batch.c               # single-session MTP helper (C, links against libmtp)
 ```
 
