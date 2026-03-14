@@ -42,3 +42,6 @@ esac
 # Sync: Hardcover (https://hardcover.app/account/api)
 HARDCOVER_TOKEN="${HARDCOVER_TOKEN:-}"
 HARDCOVER_API="https://api.hardcover.app/v1/graphql"
+
+# Sync: Goodreads (session-based auth via Playwright)
+GOODREADS_SESSION="${KINDLE_DATA_DIR}/goodreads-session.json"
