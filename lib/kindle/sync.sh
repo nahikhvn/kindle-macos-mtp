@@ -13,12 +13,14 @@ cmd_sync() {
     shift 2>/dev/null || true
 
     case "$subcmd" in
-        hardcover)  _sync_platform hardcover "$@" ;;
-        update)     _sync_update "${1:-hardcover}" ;;
-        status)     _sync_status "$@" ;;
-        map)        _sync_map "$@" ;;
-        unmap)      _sync_unmap "$@" ;;
-        ""|help|-h) _sync_usage ;;
+        hardcover)        _sync_platform hardcover "$@" ;;
+        goodreads)        _sync_platform goodreads "$@" ;;
+        goodreads-login)  _sync_goodreads_login ;;
+        update)           _sync_update "${1:-hardcover}" ;;
+        status)           _sync_status "$@" ;;
+        map)              _sync_map "$@" ;;
+        unmap)            _sync_unmap "$@" ;;
+        ""|help|-h)       _sync_usage ;;
         *)
             echo -e "${RED}Unknown sync command:${NC} $subcmd"
             _sync_usage
@@ -34,6 +36,9 @@ Usage: kindle sync <platform> [options] [filter]
 Platforms:
   hardcover [filter]    Sync to Hardcover (hardcover.app)
     -n, --dry-run       Show what would sync without making API calls
+  goodreads [filter]    Sync to Goodreads (goodreads.com)
+    -n, --dry-run       Show what would sync without making API calls
+  goodreads-login       Open browser to log in to Goodreads (one-time setup)
   update [platform]     Push reading progress for already-mapped books (default: hardcover)
 
 Management:
@@ -42,7 +47,8 @@ Management:
   unmap <file_id> <platform>               Remove a mapping
 
 Configuration:
-  Set HARDCOVER_TOKEN in .env.local (get from hardcover.app/account/api)
+  Hardcover: Set HARDCOVER_TOKEN in .env.local (get from hardcover.app/account/api)
+  Goodreads: Run kindle sync goodreads-login to authenticate via browser
 EOF
 }
 
@@ -167,6 +173,13 @@ _sync_update() {
                 return 1
             fi
             ;;
+        goodreads)
+            if [[ ! -f "$GOODREADS_SESSION" ]]; then
+                echo -e "${RED}Error:${NC} Not logged in to Goodreads."
+                echo "Run: kindle sync goodreads-login"
+                return 1
+            fi
+            ;;
     esac
 
     if ! "_sync_${platform}_init"; then
@@ -240,6 +253,13 @@ _sync_platform() {
                 echo -e "${RED}Error:${NC} HARDCOVER_TOKEN not set."
                 echo "Get your token from https://hardcover.app/account/api"
                 echo "Add to .env.local: HARDCOVER_TOKEN=your_token_here"
+                return 1
+            fi
+            ;;
+        goodreads)
+            if [[ ! -f "$GOODREADS_SESSION" ]]; then
+                echo -e "${RED}Error:${NC} Not logged in to Goodreads."
+                echo "Run: kindle sync goodreads-login"
                 return 1
             fi
             ;;
@@ -744,6 +764,157 @@ _sync_hardcover_push() {
         else
             echo -e "  ${YELLOW}No page count for edition — skipping progress${NC}" >&2
         fi
+    fi
+
+    return 0
+}
+
+# ── Goodreads backend ─────────────────────────────────────────────
+
+_sync_goodreads_login() {
+    if ! command -v node &>/dev/null; then
+        echo -e "${RED}Error:${NC} Node.js required for Goodreads sync. Install: brew install node"
+        return 1
+    fi
+
+    # Install Playwright if needed
+    if [[ ! -d "${KINDLE_ROOT}/node_modules/playwright" && ! -d "${KINDLE_ROOT}/node_modules/.pnpm/playwright"* ]]; then
+        echo "Installing Playwright..."
+        if command -v pnpm &>/dev/null; then
+            (cd "$KINDLE_ROOT" && pnpm install 2>/dev/null)
+            (cd "$KINDLE_ROOT" && pnpx playwright install chromium 2>/dev/null)
+        else
+            (cd "$KINDLE_ROOT" && npm install --no-fund --no-audit 2>/dev/null)
+            (cd "$KINDLE_ROOT" && npx playwright install chromium 2>/dev/null)
+        fi
+    fi
+
+    echo -e "Opening Goodreads login..."
+    echo -e "Log in with your account, then the browser will close automatically."
+    echo ""
+
+    node "${KINDLE_LIB}/goodreads.js" login --session "$GOODREADS_SESSION"
+    local rc=$?
+
+    if [[ $rc -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}Goodreads session saved.${NC} You can now run ${BOLD}kindle sync goodreads${NC}"
+    else
+        echo -e "${RED}Login failed.${NC} Please try again."
+        return 1
+    fi
+}
+
+_sync_goodreads_init() {
+    if ! command -v node &>/dev/null; then
+        echo -e "${RED}Error:${NC} Node.js required for Goodreads sync. Install: brew install node"
+        return 1
+    fi
+
+    if [[ ! -f "$GOODREADS_SESSION" ]]; then
+        echo -e "${RED}Error:${NC} Not logged in to Goodreads."
+        echo "Run: kindle sync goodreads-login"
+        return 1
+    fi
+
+    echo -e "Using Goodreads session from ${CYAN}${GOODREADS_SESSION}${NC}"
+    echo ""
+}
+
+_sync_goodreads_search_title() {
+    local query="$1"
+    # Clean up query: replace underscores, collapse spaces
+    query=$(echo "$query" | sed 's/_/ /g; s/  */ /g; s/^ *//; s/ *$//')
+    # Truncate at subtitle markers to avoid summary/guide noise
+    query=$(echo "$query" | sed 's/ *[:—–|].*//')
+    local encoded
+    encoded=$(printf '%s' "$query" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))" 2>/dev/null || echo "$query")
+
+    local response
+    response=$(curl -s --max-time 15 \
+        "https://www.goodreads.com/book/auto_complete?format=json&q=${encoded}")
+
+    echo "$response" | jq -r '.[] | [
+        (.bookId // "" | tostring),
+        (.title // ""),
+        (.author.name // "")
+    ] | join("|")' 2>/dev/null
+}
+
+_sync_goodreads_search_isbn() {
+    local isbn="$1"
+    # Goodreads auto_complete can sometimes find books by ISBN
+    local result
+    result=$(_sync_goodreads_search_title "$isbn")
+    if [[ -n "$result" ]]; then
+        # Return first result in ISBN format: external_id|title|edition_id|pages
+        local bid btitle
+        IFS='|' read -r bid btitle _ <<< "$(echo "$result" | head -1)"
+        echo "${bid}|${btitle}||"
+    fi
+}
+
+_sync_goodreads_get_editions_batch() {
+    local ids_csv="$1"
+    # Goodreads doesn't have a batch edition API.
+    # Return book_id|edition_id|pages with empty edition data.
+    for id in $(echo "$ids_csv" | tr ',' ' '); do
+        echo "${id}||"
+    done
+}
+
+_sync_goodreads_push() {
+    local file_id="$1" external_id="$2"
+    local percentage="$3" bookshelves="$4" rating="$5" review="$6"
+
+    local push_args=("${KINDLE_LIB}/goodreads.js" push
+        --session "$GOODREADS_SESSION"
+        --book-id "$external_id")
+
+    # Map bookshelves → Goodreads shelf name
+    local shelf=""
+    case "$bookshelves" in
+        to-read)             shelf="to-read" ;;
+        currently-reading)   shelf="currently-reading" ;;
+        read)                shelf="read" ;;
+        did-not-finish|dnf)  shelf="did-not-finish" ;;
+    esac
+    # Infer from progress if no explicit shelf
+    if [[ -z "$shelf" && -n "$percentage" ]]; then
+        local pct_int
+        pct_int=$(printf "%.0f" "$percentage" 2>/dev/null || echo 0)
+        if [[ "$pct_int" -ge 100 ]]; then
+            shelf="read"
+        elif [[ "$pct_int" -gt 0 ]]; then
+            shelf="currently-reading"
+        fi
+    fi
+    [[ -n "$shelf" ]] && push_args+=(--shelf "$shelf")
+
+    # Progress percentage
+    if [[ -n "$percentage" && "$percentage" != "0" ]]; then
+        local pct_int
+        pct_int=$(printf "%.0f" "$percentage" 2>/dev/null || echo 0)
+        push_args+=(--percent "$pct_int")
+    fi
+
+    # Rating
+    [[ -n "$rating" && "$rating" != "0" ]] && push_args+=(--rating "$rating")
+
+    local output
+    output=$(node "${push_args[@]}" 2>/dev/null)
+    local rc=$?
+
+    if [[ $rc -eq 2 ]]; then
+        echo -e "  ${RED}Session expired.${NC} Run: kindle sync goodreads-login" >&2
+        return 1
+    fi
+
+    if [[ $rc -ne 0 ]]; then
+        local err
+        err=$(echo "$output" | jq -r '.error // "unknown error"' 2>/dev/null || echo "unknown error")
+        echo -e "  ${RED}Push failed:${NC} $err" >&2
+        return 1
     fi
 
     return 0
