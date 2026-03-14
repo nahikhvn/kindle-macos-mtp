@@ -12,3 +12,7 @@ mtp-batch
 
 # Local plans/notes
 docs/
+
+# Node.js
+node_modules/
+.pnpm-store/
