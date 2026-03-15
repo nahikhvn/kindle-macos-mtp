@@ -16,7 +16,8 @@ cmd_sync() {
         hardcover)        _sync_platform hardcover "$@" ;;
         goodreads)        _sync_platform goodreads "$@" ;;
         goodreads-login)  _sync_goodreads_login ;;
-        update)           _sync_update "${1:-hardcover}" ;;
+        update)           _sync_update "$@" ;;
+        all)              _sync_all "$@" ;;
         status)           _sync_status "$@" ;;
         map)              _sync_map "$@" ;;
         unmap)            _sync_unmap "$@" ;;
@@ -34,12 +35,13 @@ _sync_usage() {
 Usage: kindle sync <platform> [options] [filter]
 
 Platforms:
+  all [filter]          Sync to all configured platforms
   hardcover [filter]    Sync to Hardcover (hardcover.app)
     -n, --dry-run       Show what would sync without making API calls
   goodreads [filter]    Sync to Goodreads (goodreads.com)
     -n, --dry-run       Show what would sync without making API calls
   goodreads-login       Open browser to log in to Goodreads (one-time setup)
-  update [platform]     Push reading progress for already-mapped books (default: hardcover)
+  update [platform|all] Push reading progress (default: hardcover, or all)
 
 Management:
   status [platform]     Show sync mappings and last sync times
@@ -162,7 +164,13 @@ _sync_get_percentage() {
 }
 
 _sync_update() {
-    local platform="$1"
+    local platform="${1:-hardcover}"
+    shift 2>/dev/null || true
+
+    if [[ "$platform" == "all" ]]; then
+        _sync_update_all
+        return $?
+    fi
 
     case "$platform" in
         hardcover)
@@ -767,6 +775,85 @@ _sync_hardcover_push() {
     fi
 
     return 0
+}
+
+_sync_get_platforms() {
+    local platforms=""
+    [[ -n "$HARDCOVER_TOKEN" ]] && platforms="hardcover"
+    [[ -f "$GOODREADS_SESSION" ]] && platforms="${platforms:+$platforms }goodreads"
+    echo "$platforms"
+}
+
+_sync_all() {
+    local platforms
+    platforms=$(_sync_get_platforms)
+
+    if [[ -z "$platforms" ]]; then
+        echo -e "${RED}Error:${NC} No sync platforms configured."
+        echo ""
+        echo "Setup options:"
+        echo "  Hardcover: Set HARDCOVER_TOKEN in .env.local (get from hardcover.app/account/api)"
+        echo "  Goodreads: Run kindle sync goodreads-login to authenticate via browser"
+        return 1
+    fi
+
+    for platform in $platforms; do
+        echo -e "${BOLD}━━━ Syncing to ${platform} ━━━${NC}"
+        echo ""
+        _sync_platform "$platform" "$@"
+        echo ""
+    done
+}
+
+_sync_update_all() {
+    local platforms
+    platforms=$(_sync_get_platforms)
+
+    if [[ -z "$platforms" ]]; then
+        echo -e "${RED}Error:${NC} No sync platforms configured."
+        echo ""
+        echo "Setup options:"
+        echo "  Hardcover: Set HARDCOVER_TOKEN in .env.local (get from hardcover.app/account/api)"
+        echo "  Goodreads: Run kindle sync goodreads-login to authenticate via browser"
+        return 1
+    fi
+
+    local platform_count
+    platform_count=$(echo "$platforms" | wc -w | tr -d ' ')
+
+    if [[ "$platform_count" -eq 1 ]]; then
+        _sync_update "$platforms"
+        return $?
+    fi
+
+    echo -e "${BOLD}Updating all platforms in parallel...${NC}"
+    echo ""
+
+    local pids=()
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    for platform in $platforms; do
+        (
+            _sync_update "$platform" > "${tmpdir}/${platform}.out" 2>&1
+            echo $? > "${tmpdir}/${platform}.rc"
+        ) &
+        pids+=($!)
+    done
+
+    # Wait for all to finish
+    for pid in "${pids[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+
+    # Print results with platform prefixes
+    for platform in $platforms; do
+        echo -e "${BOLD}━━━ ${platform} ━━━${NC}"
+        cat "${tmpdir}/${platform}.out" 2>/dev/null
+        echo ""
+    done
+
+    rm -rf "$tmpdir"
 }
 
 # ── Goodreads backend ─────────────────────────────────────────────

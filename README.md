@@ -55,6 +55,8 @@ brew install node   # required only for Goodreads sync
 | `kindle sync goodreads [filter]` | no | Match and sync new books to Goodreads |
 | `kindle sync update goodreads` | no | Push reading progress for mapped books to Goodreads |
 | `kindle sync goodreads -n` | no | Dry run — preview what would sync to Goodreads |
+| `kindle sync all [filter]` | no | Sync to all configured platforms |
+| `kindle sync update all` | no | Push progress to all configured platforms in parallel |
 | `kindle sync status` | no | Show book mappings and last sync times |
 | `kindle sync map <file_id> <platform> <id>` | no | Manually map a book to a platform book ID |
 | `kindle sync unmap <file_id> <platform>` | no | Remove a book mapping |
@@ -210,6 +212,16 @@ kindle sync update goodreads         # push reading progress for mapped books
 kindle sync goodreads --dry-run      # preview without making changes
 kindle sync status goodreads         # check mapping and sync status
 kindle sync map 42 goodreads 12345   # manually map file_id 42
+```
+
+## Syncing to multiple platforms
+
+If you have both Hardcover and Goodreads configured, you can sync to all platforms at once:
+
+```bash
+kindle sync all                  # match and sync to all configured platforms
+kindle sync update all           # push progress to all platforms in parallel
+kindle sync all --dry-run        # preview for all platforms
 ```
 
 ## Architecture
