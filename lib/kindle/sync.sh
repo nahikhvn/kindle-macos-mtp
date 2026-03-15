@@ -976,7 +976,9 @@ _sync_goodreads_push() {
             shelf="currently-reading"
         fi
     fi
-    [[ -n "$shelf" ]] && push_args+=(--shelf "$shelf")
+    # Default to "to-read" so every matched book gets added (matches Hardcover behavior)
+    [[ -z "$shelf" ]] && shelf="to-read"
+    push_args+=(--shelf "$shelf")
 
     # Progress percentage
     if [[ -n "$percentage" && "$percentage" != "0" ]]; then
